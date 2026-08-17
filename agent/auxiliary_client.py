@@ -4713,6 +4713,13 @@ def _resolve_api_key_branch(req: _ResolveRequest, pconfig: Any, resolve_creds: C
     if req.explicit_base_url:
         base_url = _to_openai_base_url(req.explicit_base_url.strip().rstrip("/"))
     final_model = _normalize_resolved_model(req.model or _get_aux_model_for_provider(provider), provider)
+    copilot_needs_responses = False
+    if provider == "copilot" and final_model and not req.raw_codex:
+        with contextlib.suppress(ImportError):
+            from hermes_cli.models import copilot_model_api_mode
+            copilot_needs_responses = (
+                copilot_model_api_mode(final_model, api_key=api_key) == "codex_responses"
+            )
     if provider == "gemini":
         from agent.gemini_native_adapter import GeminiNativeClient, is_native_gemini_base_url
         if is_native_gemini_base_url(base_url):
@@ -4721,15 +4728,12 @@ def _resolve_api_key_branch(req: _ResolveRequest, pconfig: Any, resolve_creds: C
             return _route_client(req, client, final_model)
     headers = _endpoint_default_headers(base_url, provider, is_vision=req.is_vision, xai=True)
     client = _create_openai_client(api_key=api_key, base_url=base_url, **({"default_headers": headers} if headers else {}))
-    # Copilot GPT-5+ models (except gpt-5-mini) are only reachable via the Responses API;
-    # wrap so call_llm() transparently routes through responses.stream().
-    if provider == "copilot" and final_model and not req.raw_codex:
-        with contextlib.suppress(ImportError):
-            from hermes_cli.models import _should_use_copilot_responses_api
-            if _should_use_copilot_responses_api(final_model):
-                logger.debug("resolve_provider_client: copilot model %s needs "
-                             "Responses API — wrapping with CodexAuxiliaryClient", final_model)
-                client = CodexAuxiliaryClient(client, final_model)
+    # Copilot models can advertise the Responses API independently of their
+    # vendor/name (for example Grok). Use the shared catalog-aware decision.
+    if copilot_needs_responses:
+        logger.debug("resolve_provider_client: copilot model %s needs "
+                     "Responses API — wrapping with CodexAuxiliaryClient", final_model)
+        client = CodexAuxiliaryClient(client, final_model)
     # api_mode handling for any API-key provider (direct OpenAI + codex model) and Anthropic-wire
     # endpoints (api.kimi.com/coding, /anthropic gateways) without per-provider branches.
     client = _wrap_transport(req, client, final_model, raw_base_url, api_key)

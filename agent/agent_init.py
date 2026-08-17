@@ -473,7 +473,11 @@ def _finalize_routing(agent, api_mode, credential_pool):
         and not agent._is_azure_openai_url()
         and (
             agent._is_direct_openai_url()
-            or agent._provider_model_requires_responses_api(agent.model, provider=agent.provider)
+            or agent._provider_model_requires_responses_api(
+                agent.model,
+                provider=agent.provider,
+                api_key=api_key,
+            )
         )
     ):
         agent.api_mode = "codex_responses"
