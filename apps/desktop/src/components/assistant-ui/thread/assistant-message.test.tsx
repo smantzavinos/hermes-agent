@@ -176,15 +176,20 @@ function LocationProbe() {
 function Harness({
   assistant = assistantMessage(),
   onBranchInNewChat,
-  onReload
+  onReload,
+  isRunning = false,
+  isDisabled = false
 }: {
   assistant?: ThreadMessage
   onBranchInNewChat?: (messageId: string) => void
   onReload?: () => Promise<void>
+  isRunning?: boolean
+  isDisabled?: boolean
 }) {
   const runtime = useExternalStoreRuntime<ThreadMessage>({
     messages: [userMessage(), assistant],
-    isRunning: false,
+    isRunning,
+    isDisabled,
     onNew: async () => {},
     ...(onReload ? { onReload } : {})
   })
@@ -197,6 +202,27 @@ function Harness({
 }
 
 describe('AssistantMessage branch button visibility (bug #2 fix)', () => {
+  it('reloads once from either desktop or touch Refresh', async () => {
+    const onReload = vi.fn(async () => {})
+    render(<Harness onReload={onReload} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Refresh' }))
+    await waitFor(() => expect(onReload).toHaveBeenCalledTimes(1))
+    onReload.mockClear()
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'More actions' }), { button: 0, pointerType: 'touch' })
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Refresh' }))
+    await waitFor(() => expect(onReload).toHaveBeenCalledTimes(1))
+  })
+
+  it.each([{ isRunning: true }, { isDisabled: true }])('guards both Refresh surfaces with %j', async state => {
+    const onReload = vi.fn(async () => {})
+    render(<Harness onReload={onReload} {...state} />)
+    expect((await screen.findByRole('button', { name: 'Refresh' })).hasAttribute('disabled')).toBe(true)
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'More actions' }), { button: 0, pointerType: 'touch' })
+    const refresh = await screen.findByRole('menuitem', { name: 'Refresh' })
+    expect(refresh.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(refresh)
+    expect(onReload).not.toHaveBeenCalled()
+  })
   it('shows the Branch in new chat button when a handler is provided (open chat)', async () => {
     render(<Harness onBranchInNewChat={() => undefined} />)
 
@@ -212,6 +238,25 @@ describe('AssistantMessage branch button visibility (bug #2 fix)', () => {
     await screen.findByText('done')
 
     expect(screen.queryByRole('button', { name: 'Branch in new chat' })).toBeNull()
+  })
+
+  it('keeps a touch action lane with direct Copy and an accessible More menu', async () => {
+    render(<Harness onBranchInNewChat={() => undefined} />)
+
+    await screen.findByText('done')
+
+    expect(screen.getByTestId('aui-touch-message-actions')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'More actions' })).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'Copy' })).toHaveLength(2)
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'More actions' }), {
+      button: 0,
+      pointerType: 'touch'
+    })
+
+    expect(await screen.findByRole('menuitem', { name: 'Branch in new chat' })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: 'Read aloud' })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: 'Refresh' })).toBeTruthy()
   })
 })
 
