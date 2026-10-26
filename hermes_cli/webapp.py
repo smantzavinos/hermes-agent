@@ -9,6 +9,7 @@ receipt inside ``dist-webapp`` decides freshness.
 
 from __future__ import annotations
 
+import os
 from contextlib import contextmanager
 from pathlib import Path
 import subprocess
@@ -28,12 +29,31 @@ class WebappBuildError(RuntimeError):
 
 
 def webapp_dist_dir(project_root: Path) -> Path:
+    """Where this install's Webapp bundle lives. ``HERMES_WEBAPP_DIST`` overrides the checkout
+    location for deployments that cannot build into the install root (Nix: the store is
+    read-only and carries no ``apps/`` tree) and instead point at a bundle built beside the
+    backend, which therefore matches it. Both the ``hermes webapp`` build path and the
+    gateway's mount resolve through this one function."""
+    override = os.environ.get("HERMES_WEBAPP_DIST")
+    if override:
+        return Path(override)
     return project_root / "apps" / "desktop" / "dist-webapp"
+
+
+def _prebuilt_dist() -> Path | None:
+    """The deployment-provided bundle's directory, or None. Set for the whole process tree
+    (the service environment and the CLI wrappers share it), so every lookup agrees."""
+    override = os.environ.get("HERMES_WEBAPP_DIST")
+    return Path(override) if override else None
 
 
 def mark_webapp_stale(project_root: Path) -> bool:
     """Mark the built bundle in *project_root* out of date, after a rebuild that failed. False when
-    no bundle is built: nothing serves one, and the build output folder stays the builder's."""
+    no bundle is built: nothing serves one, and the build output folder stays the builder's. A
+    deployment-provided bundle (``HERMES_WEBAPP_DIST``) is never marked: it is read-only and was
+    built for exactly this backend, so there is no newer code it could be stale against."""
+    if _prebuilt_dist() is not None:
+        return False
     dist = webapp_dist_dir(project_root)
     if not (dist / "index.html").is_file():
         return False
@@ -94,6 +114,16 @@ def prepare_webapp_renderer(
 
     project_root = project_root.resolve()
     dist = webapp_dist_dir(project_root)
+    if _prebuilt_dist() is not None:
+        # A deployment-provided bundle is the product for this backend, so it is always
+        # current; and its store directory can host neither the build lock nor a rebuild.
+        # Like --skip-build, this path never writes the install root.
+        if not (dist / "index.html").is_file():
+            raise WebappBuildError(
+                f"HERMES_WEBAPP_DIST points at {dist}, which has no Webapp renderer"
+            )
+        print(f"→ Using the deployment-provided Hermes Webapp renderer at {dist}")
+        return dist
     if skip_build:
         # Reuse takes no build lock, like `hermes dashboard --skip-build`: the
         # lock lives in the install root, which a read-only install cannot write.

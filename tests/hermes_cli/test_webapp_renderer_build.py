@@ -168,6 +168,49 @@ def test_no_bundle_is_marked_out_of_date_before_one_is_built(tmp_path: Path):
     assert sorted(tmp_path.rglob("*")) == install_tree
 
 
+def test_a_deployment_provided_bundle_is_reused_without_touching_the_install_tree(
+    tmp_path: Path, monkeypatch
+):
+    """``HERMES_WEBAPP_DIST`` names a bundle built beside the backend (Nix: the store is read-only
+    and carries no ``apps/`` tree). It is served as-is: no freshness check that would need Node,
+    no build lock, no write into the install tree — like ``--skip-build``, but also without
+    reading the checkout's bundle location, which does not exist in such an install."""
+    from hermes_cli import source_build
+
+    _workspace_tree(tmp_path)
+    provided = tmp_path.parent / "deployment-webapp"
+    provided.mkdir()
+    (provided / "index.html").write_text("<!doctype html>", encoding="utf-8")
+    monkeypatch.setenv("HERMES_WEBAPP_DIST", str(provided))
+    for probe in ("source_product_current", "source_build_env", "build_source_webapp"):
+        monkeypatch.setattr(
+            source_build, probe, lambda *_a, **_k: pytest.fail(f"{probe} must not run")
+        )
+
+    install_tree = sorted(tmp_path.rglob("*"))
+    assert webapp.webapp_dist_dir(tmp_path) == provided
+    assert webapp.prepare_webapp_renderer(tmp_path) == provided
+    assert sorted(tmp_path.rglob("*")) == install_tree
+
+    (provided / "index.html").unlink()
+    with pytest.raises(webapp.WebappBuildError, match="HERMES_WEBAPP_DIST"):
+        webapp.prepare_webapp_renderer(tmp_path)
+
+
+def test_a_deployment_provided_bundle_is_never_marked_out_of_date(tmp_path: Path, monkeypatch):
+    """The deployment's bundle matches the backend it ships with, so a failed rebuild elsewhere
+    cannot make it stale — and its read-only directory could not host the mark anyway."""
+    _workspace_tree(tmp_path)
+    dist = webapp.webapp_dist_dir(tmp_path)
+    dist.mkdir()
+    (dist / "index.html").write_text("<!doctype html>", encoding="utf-8")
+    monkeypatch.setenv("HERMES_WEBAPP_DIST", str(dist))
+
+    assert webapp.mark_webapp_stale(tmp_path) is False
+    assert webapp.webapp_bundle_stale(dist) is False
+    assert (dist / webapp.STALE_MARKER).exists() is False
+
+
 def test_dashboard_and_webapp_builds_share_the_workspace_lock(tmp_path: Path, monkeypatch):
     """While the Dashboard builder holds its lock, the Webapp build lock on the same checkout is taken."""
     from pm.filesystem import lock_fd

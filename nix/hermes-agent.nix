@@ -128,6 +128,14 @@ let
     inherit hermesNpmLib generatedIcons;
   };
 
+  # The browser-hosted Desktop renderer the gateway serves when a home sets
+  # `webapp.enabled`. Deployments point the backend at it with
+  # HERMES_WEBAPP_DIST; the runtime build (hermes webapp) cannot run from the
+  # read-only store. See nix/webapp.nix.
+  hermesWebapp = callPackage ./webapp.nix {
+    inherit hermesNpmLib;
+  };
+
   bundledSkills = lib.cleanSourceWith {
     src = ../skills;
     filter = path: _type: !(lib.hasInfix "/index-cache/" path) && !(lib.hasInfix "/__pycache__/" path);
@@ -387,6 +395,7 @@ stdenv.mkDerivation (finalAttrs: {
       inherit
         hermesTui
         hermesWeb
+        hermesWebapp
         hermesNpmLib
         hermesVenv
         agentBuilderSrc

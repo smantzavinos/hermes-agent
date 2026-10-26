@@ -98,6 +98,10 @@
 
         tui = full.hermesTui;
         web = full.hermesWeb;
+        # Browser-hosted Desktop renderer (apps/desktop/dist-webapp) for
+        # `webapp.enabled` homes; deployments point the backend at it with
+        # HERMES_WEBAPP_DIST.
+        webapp = full.hermesWebapp;
         desktop = full.hermesDesktop;
 
         update-npm-lockfile = full.hermesNpmLib.updateNpmLockfile;
