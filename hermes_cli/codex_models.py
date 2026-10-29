@@ -43,6 +43,8 @@ DEFAULT_CODEX_MODELS: list[str] = [
 # unsupported — that was wrong; restored here. Keep it in the curated fallback so Pro users still see Spark
 # in `/model` when live discovery is unavailable (offline first run, transient API failure).
 _FORWARD_COMPAT_TEMPLATE_MODELS: list[tuple[str, tuple[str, ...]]] = [
+    ("gpt-6.1-sol", ("gpt-6-sol", "gpt-5.6-sol")),
+    ("gpt-6.1-terra", ("gpt-5.6-terra", "gpt-6-sol")),
     ("gpt-6-sol", ("gpt-5.6-sol", "gpt-5.5")),
     ("gpt-6-luna", ("gpt-5.6-luna", "gpt-5.5")),
     ("gpt-5.6-sol", ("gpt-5.5", "gpt-5.4")),
@@ -51,7 +53,12 @@ _FORWARD_COMPAT_TEMPLATE_MODELS: list[tuple[str, tuple[str, ...]]] = [
     ("gpt-5.5", ("gpt-5.4", "gpt-5.4-mini")),
     # Spark surfaces whenever a compatible template is present; the backend (not Hermes)
     # gates real availability by ChatGPT Pro entitlement.
-    ("gpt-5.3-codex-spark", ("gpt-5.4", "gpt-5.5"))]
+    ("gpt-5.3-codex-spark", ("gpt-5.4", "gpt-5.5")),
+    # Astra follows the same rule on the live path (synthesis runs there without the
+    # undiscovered-astra drop, so it appears whenever the account's templates do and the
+    # backend rejects unentitled calls); the offline fallback drops it AFTER synthesis
+    # in get_codex_model_ids, keeping the "no astra in offline hints" invariant.
+    ("gpt-6-astra", ("gpt-6-sol", "gpt-5.6-sol"))]
 
 
 def _dedupe(model_ids) -> list[str]:
@@ -227,6 +234,8 @@ def get_codex_model_ids(access_token: Optional[str] = None, base_url: Optional[s
     from hermes_cli.models_catalog_static import CuratedFallbackModels
 
     default_model = _read_default_model(codex_home)
-    return CuratedFallbackModels(_finalize_codex_models(_drop_undiscovered_astra(_dedupe([
+    # Drop AFTER synthesis: forward-compat may synthesize the astra slug from
+    # template models, and the offline hint must still never advertise it.
+    return CuratedFallbackModels(_drop_undiscovered_astra(_finalize_codex_models(_dedupe([
         *([default_model] if default_model else []), *_read_cache_models(codex_home),
         *DEFAULT_CODEX_MODELS]))))

@@ -46,6 +46,24 @@ def test_codex_catalog_never_offers_chatgpt_rejected_pro_slugs(monkeypatch, tmp_
     assert _pro_slugs(live) == []
 
 
+def test_offline_fallback_never_advertises_astra(monkeypatch, tmp_path):
+    """Astra is forward-compatible with the sol templates, so synthesis can produce the
+    slug from offline hints — but account-gated rows may only ever come from the live
+    account catalog, so the fallback drops it AFTER synthesis, never before."""
+    from agent.reasoning_effort import is_astra_model
+
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))  # no config.toml default, no cache
+    offline = get_codex_model_ids()
+    assert any(is_astra_model(m) for m in _finalize(["gpt-6-sol"]))
+    assert not any(is_astra_model(m) for m in offline)
+
+
+def _finalize(model_ids):
+    from hermes_cli.codex_models import _finalize_codex_models
+
+    return _finalize_codex_models(list(model_ids))
+
+
 
 def test_picker_synthesizes_900k_variants_for_verified_slugs():
     """Every live-verified large-context slug gets an explicit ``-900k``
